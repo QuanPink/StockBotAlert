@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  stockbot:
+    build: .
+    container_name: stock-alert-bot
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - CHECK_INTERVAL=10
+    volumes:
+      - ./alerts.db:/app/alerts.db
+    restart: unless-stopped

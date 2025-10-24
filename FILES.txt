@@ -1,0 +1,26 @@
+📁 STOCK ALERT BOT - CẤU TRÚC PROJECT
+
+📄 Files chính:
+├── bot.py              → Main bot code (Telegram bot logic)
+├── config.py           → Configuration (BOT_TOKEN, settings)
+├── database.py         → SQLite database management
+├── price_checker.py    → API để lấy giá cổ phiếu
+├── requirements.txt    → Python dependencies
+
+📚 Hướng dẫn:
+├── README.md           → Tài liệu đầy đủ
+├── EXAMPLES.md         → Noti mẫu.
+
+🛠️ Utilities:
+├── verify_token.py     → Test Telegram bot token
+├── run.sh              → Script chạy nhanh (Linux/Mac)
+
+🐳 Docker:
+├── Dockerfile          → Docker build file
+├── docker-compose.yml  → Docker Compose config
+
+⚙️ Config:
+├── .env.example        → Ví dụ file environment
+├── .gitignore          → Git ignore rules
+
+═══════════════════════════════════════════════
