@@ -42,6 +42,11 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
+
+# Hide noisy logs that contain token
+logging.getLogger('httpx').setLevel(logging.WARNING)
+logging.getLogger('telegram.ext._application').setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
 # Initialize components
