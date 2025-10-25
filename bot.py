@@ -1,12 +1,41 @@
 import logging
+import os
+import threading
 from datetime import datetime, timedelta, timezone
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+import config
 from database import Database
 from price_checker import PriceChecker
-import config
+
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/health':
+            self.send_response(200)
+            self.send_header('Content-type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b'OK')
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def log_message(self, format, *args):
+        # Suppress logs
+        pass
+
+
+# Thêm function này
+def start_health_server():
+    port = int(os.getenv('PORT', 8080))
+    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+    thread = threading.Thread(target=server.serve_forever)
+    thread.daemon = True
+    thread.start()
+    logger.info(f"Health check server started on port {port}")
 
 # Configure logging
 logging.basicConfig(
@@ -502,6 +531,9 @@ def main():
     # ← XÓA scheduler.start() ở đây!
 
     logger.info("Bot started successfully!")
+
+    # Start health check server
+    start_health_server()
 
     # Start bot
     bot_app.run_polling(allowed_updates=Update.ALL_TYPES)
