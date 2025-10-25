@@ -23,7 +23,6 @@ def verify_token(bot_token):
                 return True
         
         print("❌ Invalid token!")
-        print(f"Response: {response.text}")
         return False
         
     except Exception as e:
