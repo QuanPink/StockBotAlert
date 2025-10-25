@@ -77,6 +77,11 @@ python bot.py
 
 5. **Xem hướng dẫn:**
    ```
+   /guide
+   ```
+   
+6. **Danh sách lệnh:**
+   ```
    /help
    ```
 
