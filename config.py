@@ -1,4 +1,5 @@
 import os
+
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -13,7 +14,10 @@ if not BOT_TOKEN:
 CHECK_INTERVAL = int(os.getenv('CHECK_INTERVAL', '10'))
 
 # Database file (persistent volume)
-DATABASE_FILE = "/data/alerts.db"
+if os.path.exists('/data'):
+    DATABASE_FILE = "/data/alerts.db"
+else:
+    DATABASE_FILE = "alerts.db"  # Local development
 
 # Vietstock API
 VIETSTOCK_API_URL = 'https://api.vietstock.vn/tvnew/history'

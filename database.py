@@ -1,11 +1,30 @@
 import sqlite3
-from typing import List, Tuple, Optional
+from typing import List, Tuple
+
 import config
 
+
 class Database:
+    _instance = None
+
+    def __new__(cls):
+        """Singleton pattern - chỉ 1 DB connection"""
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
     def __init__(self):
-        self.conn = sqlite3.connect(config.DATABASE_FILE, check_same_thread=False)
-        self.create_tables()
+        if not hasattr(self, 'conn'):
+            self.conn = sqlite3.connect(
+                config.DATABASE_FILE,
+                check_same_thread=False,
+                isolation_level='DEFERRED',  # Better performance
+                timeout=30
+            )
+            # Enable WAL mode for better concurrent access
+            self.conn.execute('PRAGMA journal_mode=WAL')
+            self.conn.execute('PRAGMA synchronous=NORMAL')
+            self.create_tables()
 
     def create_tables(self):
         """Create alerts table if not exists"""
@@ -19,6 +38,16 @@ class Database:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+
+        cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_symbol 
+                ON alerts(symbol)
+            ''')
+
+        cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_chat_symbol 
+                ON alerts(chat_id, symbol)
+            ''')
         self.conn.commit()
 
     def add_alert(self, chat_id: int, symbol: str, target_price: float) -> bool:

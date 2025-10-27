@@ -4,13 +4,14 @@ import threading
 from datetime import datetime, timedelta, timezone
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 import config
 from database import Database
 from price_checker import PriceChecker
+
 
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -28,7 +29,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         pass
 
 
-# Thêm function này
 def start_health_server():
     port = int(os.getenv('PORT', 8080))
     server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
@@ -36,6 +36,7 @@ def start_health_server():
     thread.daemon = True
     thread.start()
     logger.info(f"Health check server started on port {port}")
+
 
 # Configure logging
 logging.basicConfig(
@@ -86,12 +87,14 @@ def is_trading_hours() -> bool:
 
     return in_morning or in_afternoon
 
+
 def format_price(price: float) -> str:
     """Format price nicely - remove .0 for whole numbers"""
     if price == int(price):
         return f"{int(price):,}"
     else:
         return f"{price:,.1f}"
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send welcome message"""
@@ -107,25 +110,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /remove <MÃ> - Xóa alert theo mã
 /clear - Xóa tất cả alerts
 /price <MÃ> - Kiểm tra giá hiện tại# Check status
-fly status
-
-# Check recent logs
-fly logs --limit 200
-
-# Check machine events
-fly machine list
-
 /guide - Xem hướng dẫn
 /help - Trợ giúp
 
 *Lưu ý:*
-• Giá hiển thị đầy đủ (26,200 = 26,200 VNĐ)
 • Bot kiểm tra giá mỗi 10 giây
 • Cảnh báo tự động xóa sau khi kích hoạt
 
 Bắt đầu bằng cách gõ: /alert HPG 25500
     """
     await update.message.reply_text(welcome_msg, parse_mode='Markdown')
+
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show command list"""
@@ -146,6 +141,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 `/edit HPG 27000`
     """
     await update.message.reply_text(help_msg, parse_mode='Markdown')
+
 
 async def guide_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show detailed guide"""
@@ -188,7 +184,7 @@ async def guide_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def alert_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /alert command"""
+    """Handle /alert command - supports both single and multiple alerts"""
     # Safety check
     if not update.message:
         return
@@ -196,61 +192,171 @@ async def alert_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
 
     # Check command format
-    if len(context.args) != 2:
+    if len(context.args) < 2:
         await update.message.reply_text(
             "❌ Sai cú pháp!\n\n"
-            "Đúng: /alert <MÃ> <GIÁ>\n"
-            "Ví dụ: /alert HPG 25500"
-        )
-        return
-
-    symbol = context.args[0].upper()
-    try:
-        target_price = float(context.args[1])
-    except ValueError:
-        await update.message.reply_text("❌ Giá không hợp lệ! Vui lòng nhập số.")
-        return
-
-    if target_price <= 0:
-        await update.message.reply_text("❌ Giá phải lớn hơn 0!")
-        return
-
-    # Validate symbol
-    await update.message.reply_text(f"⏳ Đang kiểm tra mã {symbol}...")
-    is_valid = await price_checker.validate_symbol(symbol)
-
-    if not is_valid:
-        await update.message.reply_text(
-            f"❌ Không tìm thấy mã {symbol}!\n"
-            "Vui lòng kiểm tra lại mã cổ phiếu."
-        )
-        return
-
-    # Get current price
-    current_price = await price_checker.get_price(symbol)
-
-    # Check if alert already exists
-    if db.alert_exists(chat_id, symbol):
-        await update.message.reply_text(
-            f"⚠️ *Cảnh báo đã tồn tại!*\n\n"
-            f"Bạn đã có alert cho *{symbol}*\n\n"
-            f"Dùng `/list` để xem tất cả alerts",
+            "*Cách 1 (đơn):*\n"
+            "`/alert HPG 25500`\n\n"
+            "*Cách 2 (nhiều):*\n"
+            "`/alert HPG 25500 VNM 80000 FPT 120000`\n\n"
+            "Format: `<MÃ> <GIÁ>` (cặp mã-giá, cách nhau bằng space)",
             parse_mode='Markdown'
         )
         return
 
-    # Add alert to database
-    if db.add_alert(chat_id, symbol, target_price):
-        msg = (
-            f"✅ *Đã đặt cảnh báo!*\n\n"
-            f"📊 Mã: *{symbol}*\n"
-            f"🎯 Giá mục tiêu: *{format_price(target_price)}* VNĐ\n"
-            f"💰 Giá hiện tại: *{format_price(current_price)}* VNĐ\n\n"
-            f"Bot sẽ thông báo khi {symbol} đạt ≥ {format_price(target_price)}"
+    # Check if args count is even (must be pairs of symbol-price)
+    if len(context.args) % 2 != 0:
+        await update.message.reply_text(
+            "❌ Số lượng tham số không hợp lệ!\n\n"
+            "Mỗi alert cần 1 cặp: `<MÃ> <GIÁ>`\n\n"
+            "Ví dụ:\n"
+            "`/alert HPG 25500` (1 alert)\n"
+            "`/alert HPG 25500 VNM 80000` (2 alerts)",
+            parse_mode='Markdown'
         )
-        await update.message.reply_text(msg, parse_mode='Markdown')
-    else:
-        await update.message.reply_text("❌ Lỗi khi đặt cảnh báo. Vui lòng thử lại!")
+        return
+
+    # Parse all symbol-price pairs
+    alerts_to_add = []
+    invalid_prices = []
+
+    for i in range(0, len(context.args), 2):
+        symbol = context.args[i].upper()
+        try:
+            target_price = float(context.args[i + 1])
+
+            if target_price <= 0:
+                invalid_prices.append(f"{symbol} {context.args[i + 1]} (giá phải > 0)")
+                continue
+
+            alerts_to_add.append((symbol, target_price))
+
+        except ValueError:
+            invalid_prices.append(f"{symbol} {context.args[i + 1]} (giá không hợp lệ)")
+
+    if invalid_prices:
+        await update.message.reply_text(
+            f"⚠️ *Giá không hợp lệ:*\n"
+            f"{chr(10).join('• ' + item for item in invalid_prices)}\n\n"
+            f"Giá phải là số > 0",
+            parse_mode='Markdown'
+        )
+        return
+
+    if not alerts_to_add:
+        await update.message.reply_text("❌ Không có alert hợp lệ nào để thêm!")
+        return
+
+    # Single alert - quick path (no progress message)
+    if len(alerts_to_add) == 1:
+        symbol, target_price = alerts_to_add[0]
+
+        # Validate symbol
+        await update.message.reply_text(f"⏳ Đang kiểm tra mã {symbol}...")
+        is_valid = await price_checker.validate_symbol(symbol)
+
+        if not is_valid:
+            await update.message.reply_text(
+                f"❌ Không tìm thấy mã {symbol}!\n"
+                "Vui lòng kiểm tra lại mã cổ phiếu."
+            )
+            return
+
+        # Get current price
+        current_price = await price_checker.get_price(symbol)
+
+        # Check if alert already exists
+        if db.alert_exists(chat_id, symbol):
+            await update.message.reply_text(
+                f"⚠️ *Cảnh báo đã tồn tại!*\n\n"
+                f"Bạn đã có alert cho *{symbol}*\n\n"
+                f"Dùng `/edit {symbol} <GIÁ>` để sửa hoặc `/remove {symbol}` để xóa",
+                parse_mode='Markdown'
+            )
+            return
+
+        # Add alert to database
+        if db.add_alert(chat_id, symbol, target_price):
+            msg = (
+                f"✅ *Đã đặt cảnh báo!*\n\n"
+                f"📊 Mã: *{symbol}*\n"
+                f"🎯 Giá mục tiêu: *{format_price(target_price)}* VNĐ\n"
+                f"💰 Giá hiện tại: *{format_price(current_price)}* VNĐ\n\n"
+                f"Bot sẽ thông báo khi {symbol} đạt ≥ {format_price(target_price)}"
+            )
+            await update.message.reply_text(msg, parse_mode='Markdown')
+        else:
+            await update.message.reply_text("❌ Lỗi khi đặt cảnh báo. Vui lòng thử lại!")
+
+        return
+
+    # Multiple alerts - show progress
+    progress_msg = await update.message.reply_text(
+        f"⏳ Đang xử lý {len(alerts_to_add)} alerts..."
+    )
+
+    # Validate all symbols first (batch)
+    symbols_to_validate = [symbol for symbol, _ in alerts_to_add]
+    await progress_msg.edit_text(
+        f"⏳ Đang kiểm tra {len(symbols_to_validate)} mã cổ phiếu..."
+    )
+
+    # Fetch prices for all symbols in parallel
+    prices = await price_checker.get_multiple_prices(symbols_to_validate)
+
+    # Process results
+    added = []
+    skipped = []
+    invalid = []
+
+    for symbol, target_price in alerts_to_add:
+        # Check if symbol is valid
+        if symbol not in prices:
+            invalid.append(f"{symbol} (không tìm thấy)")
+            continue
+
+        # Check if alert already exists
+        if db.alert_exists(chat_id, symbol):
+            skipped.append(f"{symbol} (đã tồn tại)")
+            continue
+
+        # Add alert
+        if db.add_alert(chat_id, symbol, target_price):
+            current_price = prices[symbol]
+            added.append((symbol, target_price, current_price))
+        else:
+            skipped.append(f"{symbol} (lỗi database)")
+
+    # Build result message
+    result_msg = "📊 *KẾT QUẢ THÊM ALERTS:*\n\n"
+
+    if added:
+        result_msg += f"✅ *Đã thêm {len(added)} alerts:*\n"
+        for symbol, target, current in added:
+            distance = target - current
+            result_msg += f"• {symbol}: {format_price(target)} VNĐ "
+            result_msg += f"(hiện tại: {format_price(current)}, "
+            if distance > 0:
+                result_msg += f"còn {format_price(distance)})\n"
+            else:
+                result_msg += f"đã đạt!)\n"
+        result_msg += "\n"
+
+    if invalid:
+        result_msg += f"❌ *Mã không hợp lệ ({len(invalid)}):*\n"
+        for item in invalid:
+            result_msg += f"• {item}\n"
+        result_msg += "\n"
+
+    if skipped:
+        result_msg += f"⚠️ *Bỏ qua ({len(skipped)}):*\n"
+        for item in skipped:
+            result_msg += f"• {item}\n"
+        result_msg += "\n"
+
+    result_msg += f"_Tổng: {len(added)} thành công, {len(invalid)} lỗi, {len(skipped)} bỏ qua_"
+
+    await progress_msg.edit_text(result_msg, parse_mode='Markdown')
 
 
 async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -302,33 +408,78 @@ async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def remove_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Remove alerts for a symbol"""
+    """Remove alerts - supports both single and multiple symbols"""
     if not update.message:
         return
 
     chat_id = update.effective_chat.id
 
-    if len(context.args) != 1:
+    if len(context.args) < 1:
         await update.message.reply_text(
             "❌ Sai cú pháp!\n\n"
-            "Đúng: /remove <MÃ>\n"
-            "Ví dụ: /remove HPG"
+            "*Cách 1 (đơn):*\n"
+            "`/remove HPG`\n\n"
+            "*Cách 2 (nhiều):*\n"
+            "`/remove HPG VNM FPT`\n\n"
+            "Liệt kê các mã cần xóa, cách nhau bằng space",
+            parse_mode='Markdown'
         )
         return
 
-    symbol = context.args[0].upper()
-    count = db.remove_alerts_by_symbol(chat_id, symbol)
+    # Parse symbols
+    symbols = [arg.upper() for arg in context.args]
 
-    if count > 0:
-        await update.message.reply_text(
-            f"✅ Đã xóa cảnh báo cho mã *{symbol}*",
-            parse_mode='Markdown'
-        )
-    else:
-        await update.message.reply_text(
-            f"❌ Không tìm thấy cảnh báo nào cho mã *{symbol}*",
-            parse_mode='Markdown'
-        )
+    # Remove duplicates while preserving order
+    symbols = list(dict.fromkeys(symbols))
+
+    # Single symbol - quick path
+    if len(symbols) == 1:
+        symbol = symbols[0]
+        count = db.remove_alerts_by_symbol(chat_id, symbol)
+
+        if count > 0:
+            await update.message.reply_text(
+                f"✅ Đã xóa cảnh báo cho mã *{symbol}*",
+                parse_mode='Markdown'
+            )
+        else:
+            await update.message.reply_text(
+                f"❌ Không tìm thấy cảnh báo nào cho mã *{symbol}*",
+                parse_mode='Markdown'
+            )
+        return
+
+    # Multiple symbols - show results
+    removed = []
+    not_found = []
+
+    for symbol in symbols:
+        count = db.remove_alerts_by_symbol(chat_id, symbol)
+        if count > 0:
+            removed.append((symbol, count))
+        else:
+            not_found.append(symbol)
+
+    # Build result message
+    result_msg = "🗑️ *KẾT QUẢ XÓA ALERTS:*\n\n"
+
+    if removed:
+        result_msg += f"✅ *Đã xóa alerts cho {len(removed)} mã:*\n"
+        for symbol, count in removed:
+            result_msg += f"• {symbol} ({count} alert{'s' if count > 1 else ''})\n"
+        result_msg += "\n"
+
+    if not_found:
+        result_msg += f"❌ *Không tìm thấy alerts ({len(not_found)}):*\n"
+        for symbol in not_found:
+            result_msg += f"• {symbol}\n"
+        result_msg += "\n"
+
+    total_removed = sum(count for _, count in removed)
+    result_msg += f"_Tổng: Đã xóa {total_removed} alerts_"
+
+    await update.message.reply_text(result_msg, parse_mode='Markdown')
+
 
 async def edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Edit alert price"""
@@ -449,39 +600,73 @@ async def check_alerts():
 
     alerts = db.get_all_alerts()
 
+    if not alerts:
+        logger.debug("No alerts to check")
+        return
+
+    logger.info(f"⏰ Checking {len(alerts)} alerts...")
+
+    # Step1: Group alerts by symbol to avoid duplicate price fetches
+    # Example: If 5 users have HPG alerts, we only fetch HPG price once
+    alerts_by_symbol = {}
     for alert_id, chat_id, symbol, target_price in alerts:
-        try:
-            current_price = await price_checker.get_price(symbol)
+        if symbol not in alerts_by_symbol:
+            alerts_by_symbol[symbol] = []
+        alerts_by_symbol[symbol].append((alert_id, chat_id, target_price))
 
-            if current_price is None:
-                continue
+    # Step 2: Get unique symbols and fetch ALL prices in ONE batch
+    unique_symbols = list(alerts_by_symbol.keys())
+    logger.info(f"📊 Fetching prices for {len(unique_symbols)} unique symbols...")
 
-            # Check if price reached target
-            if current_price >= target_price:
-                # Send notification
-                msg = (
-                    f"🎯 *CẢNH BÁO GIÁ!*\n\n"
-                    f"📊 *{symbol}* đã đạt mục tiêu!\n\n"
-                    f"🎯 Giá mục tiêu: *{format_price(target_price)}* VNĐ\n"
-                    f"💰 Giá hiện tại: *{format_price(current_price)}* VNĐ\n\n"
-                    f"_Cảnh báo đã được tự động xóa_"
-                )
+    # 🔥 THIS IS THE MAGIC - Parallel batch API call
+    prices = await price_checker.get_multiple_prices(unique_symbols)
 
-                try:
-                    await bot_app.bot.send_message(
-                        chat_id=chat_id,
-                        text=msg,
-                        parse_mode='Markdown'
+    # Step 3: Check each alert against fetched prices
+    notifications_sent = 0
+    for symbol, alerts_list in alerts_by_symbol.items():
+        current_price = prices.get(symbol)
+
+        if current_price is None:
+            logger.warning(f"❌ No price data for {symbol}, skipping alerts")
+            continue
+
+        alerts = db.get_all_alerts()
+        if not alerts:
+            logger.debug("No alerts to check")
+            return
+
+        # Check all alerts for this symbol
+        for alert_id, chat_id, target_price in alerts_list:
+            try:
+                # Check if price reached target
+                if current_price >= target_price:
+                    # Send notification
+                    msg = (
+                        f"🎯 *CẢNH BÁO GIÁ!*\n\n"
+                        f"📊 *{symbol}* đã đạt mục tiêu!\n\n"
+                        f"🎯 Giá mục tiêu: *{format_price(target_price)}* VNĐ\n"
+                        f"💰 Giá hiện tại: *{format_price(current_price)}* VNĐ\n\n"
+                        f"_Cảnh báo đã được tự động xóa_"
                     )
-                except Exception as e:
-                    logger.error(f"Error sending notification: {e}")
 
-                # Remove alert after notification
-                db.remove_alerts_by_symbol(chat_id,symbol)
-                logger.info(f"Alert triggered and removed: {symbol} @ {target_price} for chat {chat_id}")
+                    try:
+                        await bot_app.bot.send_message(
+                            chat_id=chat_id,
+                            text=msg,
+                            parse_mode='Markdown'
+                        )
+                        notifications_sent += 1
+                        logger.info(f"✅ Alert triggered: {symbol} @ {target_price} for chat {chat_id}")
+                    except Exception as e:
+                        logger.error(f"Error sending notification: {e}")
 
-        except Exception as e:
-            logger.error(f"Error checking alert {alert_id}: {e}")
+                    # Remove alert after notification
+                    db.remove_alerts_by_symbol(chat_id, symbol)
+
+            except Exception as e:
+                logger.error(f"Error checking alert {alert_id}: {e}")
+
+    logger.info(f"✅ Check complete. {notifications_sent} notifications sent")
 
 
 async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):

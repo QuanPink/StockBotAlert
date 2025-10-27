@@ -1,7 +1,9 @@
-import aiohttp
 import asyncio
-from typing import Optional, Dict
 from datetime import datetime, timedelta
+from typing import Optional, Dict, List
+
+import aiohttp
+
 import config
 
 
@@ -28,9 +30,7 @@ class PriceChecker:
             await self.session.close()
 
     async def get_price(self, symbol: str) -> Optional[float]:
-        """
-        Get current stock price from Vietstock API
-        """
+        """Get current stock price from Vietstock API"""
         try:
             await self.init_session()
 
@@ -49,27 +49,18 @@ class PriceChecker:
                 'countback': 7
             }
 
-            print(f"🔍 DEBUG: Requesting Vietstock API for {symbol}")
-            print(f"🔍 DEBUG: URL = {url}")
-            print(f"🔍 DEBUG: Params = {params}")
-
             async with self.session.get(url, params=params, timeout=10) as response:
-                print(f"🔍 DEBUG: Response status = {response.status}")
-
                 if response.status == 200:
                     data = await response.json()
-                    print(f"🔍 DEBUG: Response keys = {data.keys() if isinstance(data, dict) else 'Not a dict'}")
 
                     # Vietstock returns: {c: [prices], o: [opens], h: [highs], l: [lows], v: [volumes], t: [timestamps]}
                     if data and 'c' in data and len(data['c']) > 0:
                         # Get the latest closing price (last item in array)
                         latest_price = data['c'][-1]
-                        print(f"🔍 DEBUG: Extracted price = {latest_price}")
 
                         if latest_price:
                             return float(latest_price)  # Already in thousands
                     else:
-                        print(f"🔍 DEBUG: No price data in response")
                         print(f"🔍 DEBUG: Full response = {data}")
                 else:
                     text = await response.text()
@@ -78,21 +69,53 @@ class PriceChecker:
                 return None
         except Exception as e:
             print(f"Error getting price for {symbol}: {e}")
-            import traceback
-            traceback.print_exc()
             return None
 
+    async def get_multiple_prices(self, symbols: List[str]) -> Dict[str, float]:
+        """Get prices for multiple symbols efficiently using parallel request"""
+        if not symbols:
+            return {}
+
+        await self.init_session()
+
+        # Remove duplicates and convert to uppercase
+        unique_symbols = list(set([s.upper() for s in symbols]))
+
+        print(f"🔄 Fetching prices for {len(unique_symbols)} symbols in parallel...")
+
+        # Create tasks for parallel execution
+        tasks = [self.get_price(symbol) for symbol in unique_symbols]
+
+        try:
+            results = await asyncio.wait_for(
+                asyncio.gather(*tasks, return_exceptions=True),
+                timeout=15.0  # Max 15s cho toàn bộ batch
+            )
+        except asyncio.TimeoutError:
+            print(f"⚠️  Batch fetch timeout after 15s")
+            return {}
+
+        # Build result dictionary
+        prices = {}
+        success_count = 0
+        for symbol, result in zip(unique_symbols, results):
+            if not isinstance(result, Exception) and result is not None:
+                prices[symbol] = result
+                success_count += 1
+            else:
+                error_msg = str(result) if isinstance(result, Exception) else 'No data'
+                print(f"⚠️  Failed to get price for {symbol}: {error_msg}")
+
+        print(f"✅ Successfully fetched {success_count}/{len(unique_symbols)} prices")
+        return prices
+
     async def validate_symbol(self, symbol: str) -> bool:
-        """
-        Check if a stock symbol is valid
-        """
+        """Check if a stock symbol is valid"""
         price = await self.get_price(symbol)
         return price is not None
 
     async def get_stock_info(self, symbol: str) -> Optional[Dict]:
-        """
-        Get detailed stock information from Vietstock API
-        """
+        """Get detailed stock information from Vietstock API"""
         try:
             await self.init_session()
 
