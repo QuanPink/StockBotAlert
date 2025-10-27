@@ -3,7 +3,7 @@ import sys
 import requests
 
 
-def verify_token(bot_token):
+def verify_token(bot_token: str) -> bool:
     """Verify if token is valid"""
     print("🔍 Verifying bot token...")
 
@@ -23,8 +23,17 @@ def verify_token(bot_token):
         print(f"Response: {response.text}")
         return False
 
+
+    except requests.exceptions.Timeout:
+        print("\n❌ Request timeout - check your internet connection")
+        return False
+
+    except requests.exceptions.ConnectionError:
+        print("\n❌ Connection error - cannot reach Telegram API")
+        return False
+
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"\n❌ Error: {e}")
         return False
 
 

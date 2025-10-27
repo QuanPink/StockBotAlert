@@ -109,7 +109,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /edit <MÃ> <GIÁ> - Sửa giá alert (VD: /edit HPG 26500)
 /remove <MÃ> - Xóa alert theo mã
 /clear - Xóa tất cả alerts
-/price <MÃ> - Kiểm tra giá hiện tại# Check status
+/price <MÃ> - Kiểm tra giá hiện tại
 /guide - Xem hướng dẫn
 /help - Trợ giúp
 

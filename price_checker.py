@@ -12,7 +12,7 @@ class PriceChecker:
         self.session = None
         self.valid_symbols_cache = set()
 
-    async def init_session(self):
+    def init_session(self):
         """Initialize aiohttp session with headers"""
         if self.session is None:
             headers = {
@@ -32,7 +32,7 @@ class PriceChecker:
     async def get_price(self, symbol: str) -> Optional[float]:
         """Get current stock price from Vietstock API"""
         try:
-            await self.init_session()
+            self.init_session()
 
             # Vietstock API endpoint
             url = config.VIETSTOCK_API_URL
@@ -76,7 +76,7 @@ class PriceChecker:
         if not symbols:
             return {}
 
-        await self.init_session()
+        self.init_session()
 
         # Remove duplicates and convert to uppercase
         unique_symbols = list(set([s.upper() for s in symbols]))
@@ -117,7 +117,7 @@ class PriceChecker:
     async def get_stock_info(self, symbol: str) -> Optional[Dict]:
         """Get detailed stock information from Vietstock API"""
         try:
-            await self.init_session()
+            self.init_session()
 
             url = config.VIETSTOCK_API_URL
 
