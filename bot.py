@@ -630,11 +630,6 @@ async def check_alerts():
             logger.warning(f"❌ No price data for {symbol}, skipping alerts")
             continue
 
-        alerts = db.get_all_alerts()
-        if not alerts:
-            logger.debug("No alerts to check")
-            return
-
         # Check all alerts for this symbol
         for alert_id, chat_id, target_price in alerts_list:
             try:
